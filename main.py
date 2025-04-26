@@ -1,277 +1,267 @@
 import telebot
 from telebot import types
 import time
-import random
+import threading
 
-# Config
-TOKEN = "8011013049:AAGVlTalTLZ-LI24aPflJM6Iptmb13W3Hvo"
+# Your Bot Details
+BOT_TOKEN = '8011013049:AAGVlTalTLZ-LI24aPflJM6Iptmb13W3Hvo'
+bot = telebot.TeleBot(BOT_TOKEN)
 CHANNEL_ID = -1002316557460
 ADMIN_ID = 7401896933
-BOT_USERNAME = "Datingxrobot"
 
-bot = telebot.TeleBot(TOKEN)
-
-# Storage
+# Data Storage
 users = {}
-searching = []
-filter_searching = []
-chats = {}
-referrals = {}
+waiting_random = []
+waiting_filter = []
 blocked_users = {}
 
-# Force join
-def is_user_in_channel(user_id):
+# Helper functions
+def is_member(user_id):
     try:
         member = bot.get_chat_member(CHANNEL_ID, user_id)
         return member.status in ['member', 'administrator', 'creator']
     except:
         return False
 
-def send_join_message(chat_id):
+def start_menu():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.row("🔍 Random Chat", "🎯 Filter Chat")
+    markup.row("👤 Profile", "⚙️ Settings", "💰 Referral")
+    return markup
+
+def profile_menu():
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("🔗 Join Channel", url="https://t.me/+g-i8Vohdrv44NDRl"))
-    markup.add(types.InlineKeyboardButton("✅ Joined", callback_data="joined"))
-    bot.send_message(chat_id, "❗️ Please join our channel to use the bot!", reply_markup=markup)
-
-# Helper
-def check_force_join(message):
-    if not is_user_in_channel(message.from_user.id):
-        send_join_message(message.chat.id)
-        return False
-    if message.from_user.id in blocked_users and time.time() < blocked_users[message.from_user.id]:
-        bot.send_message(message.chat.id, "🚫 You are blocked temporarily.")
-        return False
-    return True
-
-def get_profile_text(user_id):
-    data = users.get(user_id, {})
-    gender = data.get("gender", "Not Set")
-    age = data.get("age", "Not Set")
-    country = data.get("country", "Not Set")
-    refs = referrals.get(user_id, 0)
-    points = data.get("points", 0)
-    return f"👤 Profile\n\nGender: {gender}\nAge: {age}\nCountry: {country}\nReferrals: {refs}\nPoints: {points}"
-
-# Start
-@bot.message_handler(commands=['start'])
-def start(message):
-    if not check_force_join(message):
-        return
-
-    args = message.text.split()
-    if len(args) > 1:
-        code = args[1]
-        if code.isdigit():
-            ref_id = int(code)
-            if ref_id != message.from_user.id:
-                referrals[ref_id] = referrals.get(ref_id, 0) + 1
-                users[ref_id]["points"] = users.get(ref_id, {}).get("points", 0) + 2
-                bot.send_message(ref_id, f"🎉 New Referral! Total referrals: {referrals[ref_id]}")
-                bot.send_message(ADMIN_ID, f"🆕 New Referral!\nUser: {ref_id}\nBy: {message.from_user.id}")
-
-    bot.send_message(message.chat.id, f"👋 Welcome {message.from_user.first_name}!\nUse /profile to setup your profile.\n/start your dating journey!")
-
-# Joined Callback
-@bot.callback_query_handler(func=lambda call: call.data == "joined")
-def joined(call):
-    if is_user_in_channel(call.from_user.id):
-        bot.answer_callback_query(call.id, "✅ You have joined successfully!")
-        bot.send_message(call.message.chat.id, "✅ Now use /profile to setup and /search to find partner!")
-    else:
-        bot.answer_callback_query(call.id, "❗️ Please join the channel first!")
-
-# Profile
-@bot.message_handler(commands=['profile'])
-def profile(message):
-    if not check_force_join(message):
-        return
-
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("♂️ Male", callback_data="gender_Male"),
-               types.InlineKeyboardButton("♀️ Female", callback_data="gender_Female"))
-    markup.add(types.InlineKeyboardButton("🌏 Set Country", callback_data="set_country"))
+    markup.add(types.InlineKeyboardButton("🚻 Set Gender", callback_data="set_gender"))
     markup.add(types.InlineKeyboardButton("🎂 Set Age", callback_data="set_age"))
-    bot.send_message(message.chat.id, get_profile_text(message.from_user.id), reply_markup=markup)
+    markup.add(types.InlineKeyboardButton("🌎 Set Country", callback_data="set_country"))
+    return markup
 
-# Settings
-@bot.message_handler(commands=['settings'])
-def settings(message):
-    if not check_force_join(message):
-        return
-
+def setting_menu():
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("🔄 Reset Settings", callback_data="reset_settings"))
-    bot.send_message(message.chat.id, "⚙️ Settings:", reply_markup=markup)
+    return markup
 
-# Set Gender
-@bot.callback_query_handler(func=lambda call: call.data.startswith("gender_"))
-def set_gender(call):
-    gender = call.data.split("_")[1]
-    users.setdefault(call.from_user.id, {})["gender"] = gender
-    bot.answer_callback_query(call.id, f"✅ Gender set to {gender}")
-    bot.edit_message_text(get_profile_text(call.from_user.id), call.message.chat.id, call.message.message_id)
-
-# Set Country and Age
-@bot.callback_query_handler(func=lambda call: call.data.startswith("set_country"))
-def ask_country(call):
+def genders_markup():
     markup = types.InlineKeyboardMarkup()
-    countries = ["🇮🇳 India", "🇰🇷 Korea", "🇷🇺 Russia", "🇱🇰 Sri Lanka", "🇮🇩 Indonesia"]
-    for country in countries:
-        markup.add(types.InlineKeyboardButton(country, callback_data=f"country_{country}"))
-    bot.edit_message_text("🌏 Choose your Country:", call.message.chat.id, call.message.message_id, reply_markup=markup)
+    markup.add(types.InlineKeyboardButton("♂️ Male", callback_data="gender_male"),
+               types.InlineKeyboardButton("♀️ Female", callback_data="gender_female"))
+    return markup
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("country_"))
-def save_country(call):
-    country = call.data.split("_", 1)[1]
-    users.setdefault(call.from_user.id, {})["country"] = country
-    bot.answer_callback_query(call.id, f"✅ Country set to {country}")
-    bot.edit_message_text(get_profile_text(call.from_user.id), call.message.chat.id, call.message.message_id)
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("set_age"))
-def ask_age(call):
-    bot.answer_callback_query(call.id)
-    bot.send_message(call.message.chat.id, "🎂 Send your Age (e.g., 18)")
-
-@bot.message_handler(func=lambda message: message.text.isdigit() and 10 <= int(message.text) <= 99)
-def save_age(message):
-    users.setdefault(message.from_user.id, {})["age"] = message.text
-    bot.send_message(message.chat.id, "✅ Age saved successfully!")
-
-@bot.callback_query_handler(func=lambda call: call.data == "reset_settings")
-def reset_settings(call):
-    users[call.from_user.id] = {}
-    bot.answer_callback_query(call.id, "🔄 Settings Reset!")
-    bot.edit_message_text("✅ Settings have been reset. Use /profile to setup again.", call.message.chat.id, call.message.message_id)
-
-# Search
-@bot.message_handler(commands=['search'])
-def random_search(message):
-    if not check_force_join(message):
-        return
-    if message.from_user.id in chats:
-        bot.send_message(message.chat.id, "❗️ You're already chatting. Use /disconnect first.")
-        return
-    searching.append(message.from_user.id)
-    bot.send_message(message.chat.id, "🔍 Searching for partner...")
-    match_users()
-
-# Filter Search
-@bot.message_handler(commands=['filtersearch'])
-def filter_search(message):
-    if not check_force_join(message):
-        return
-    if message.from_user.id in chats:
-        bot.send_message(message.chat.id, "❗️ You're already chatting. Use /disconnect first.")
-        return
-    filter_searching.append(message.from_user.id)
-    bot.send_message(message.chat.id, "🎯 Searching with filters...")
-    match_users()
-
-# Match
-def match_users():
-    random.shuffle(searching)
-    while len(searching) >= 2:
-        u1 = searching.pop(0)
-        u2 = searching.pop(0)
-        connect(u1, u2)
-
-    random.shuffle(filter_searching)
-    while len(filter_searching) >= 2:
-        u1 = filter_searching.pop(0)
-        u2 = filter_searching.pop(0)
-        if check_filter(u1, u2):
-            connect(u1, u2)
-
-def check_filter(u1, u2):
-    p1 = users.get(u1, {})
-    p2 = users.get(u2, {})
-    return (p1.get("gender") != p2.get("gender") and
-            p1.get("country") == p2.get("country") and
-            abs(int(p1.get("age", 0)) - int(p2.get("age", 0))) <= 5)
-
-def connect(u1, u2):
-    chats[u1] = u2
-    chats[u2] = u1
-
+def countries_markup():
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("❌ Disconnect", callback_data="disconnect"))
+    markup.add(
+        types.InlineKeyboardButton("🇮🇳 India", callback_data="country_india"),
+        types.InlineKeyboardButton("🇮🇩 Indonesia", callback_data="country_indonesia")
+    )
+    markup.add(
+        types.InlineKeyboardButton("🇰🇷 Korea", callback_data="country_korea"),
+        types.InlineKeyboardButton("🇷🇺 Russia", callback_data="country_russia")
+    )
+    markup.add(
+        types.InlineKeyboardButton("🇱🇰 Sri Lanka", callback_data="country_srilanka"),
+        types.InlineKeyboardButton("🇺🇸 USA", callback_data="country_usa")
+    )
+    return markup
 
-    bot.send_message(u1, f"❤️ Partner Found!\n\n{get_profile_text(u2)}", reply_markup=markup)
-    bot.send_message(u2, f"❤️ Partner Found!\n\n{get_profile_text(u1)}", reply_markup=markup)
+def age_markup():
+    markup = types.InlineKeyboardMarkup()
+    for age in range(18, 26):
+        markup.add(types.InlineKeyboardButton(f"{age}", callback_data=f"age_{age}"))
+    return markup
 
-# Disconnect
-@bot.callback_query_handler(func=lambda call: call.data == "disconnect")
-def disconnect_call(call):
-    disconnect_user(call.from_user.id)
+# Bot Commands
+@bot.message_handler(commands=['start'])
+def start(message):
+    user_id = message.from_user.id
+    args = message.text.split()
+    
+    if not is_member(user_id):
+        join_markup = types.InlineKeyboardMarkup()
+        join_markup.add(types.InlineKeyboardButton("✅ Join Channel", url="https://t.me/+g-i8Vohdrv44NDRl"))
+        bot.send_message(user_id, "⚡ Please join our channel first!", reply_markup=join_markup)
+        return
+
+    if user_id not in users:
+        users[user_id] = {
+            "gender": None,
+            "age": None,
+            "country": None,
+            "filter_gender": None,
+            "filter_age": None,
+            "filter_country": None,
+            "partner": None,
+            "referrals": 0,
+            "session": time.time() + 3600  # 1 Hour for new user
+        }
+        bot.send_message(ADMIN_ID, f"🎉 New User: [{user_id}](tg://user?id={user_id})", parse_mode="Markdown")
+
+        if len(args) > 1:
+            ref_code = args[1]
+            try:
+                ref_id = int(ref_code)
+                if ref_id != user_id and ref_id in users:
+                    users[ref_id]["referrals"] += 1
+                    bot.send_message(ref_id, "🎯 You got 1 referral! 3 referrals = 2hr filter chat!")
+                    bot.send_message(ADMIN_ID, f"📣 [{user_id}](tg://user?id={user_id}) used referral of [{ref_id}](tg://user?id={ref_id})", parse_mode="Markdown")
+            except:
+                pass
+
+    bot.send_message(user_id, "👋 Welcome to Datingxrobot!", reply_markup=start_menu())
+
+@bot.message_handler(commands=['fix'])
+def fix_command(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    try:
+        parts = message.text.split()
+        if len(parts) == 3:
+            uid1 = int(parts[1])
+            uid2 = int(parts[2])
+            users[uid1]["partner"] = uid2
+            users[uid2]["partner"] = uid1
+
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("❌ Disconnect", callback_data="disconnect"))
+
+            bot.send_message(uid1, f"❤️ Admin connected you with [{uid2}](tg://user?id={uid2})!", parse_mode="Markdown", reply_markup=markup)
+            bot.send_message(uid2, f"❤️ Admin connected you with [{uid1}](tg://user?id={uid1})!", parse_mode="Markdown", reply_markup=markup)
+    except Exception as e:
+        bot.send_message(ADMIN_ID, f"Error: {e}")
 
 @bot.message_handler(commands=['disconnect'])
-def disconnect_cmd(message):
-    disconnect_user(message.from_user.id)
-
-def disconnect_user(uid):
-    partner = chats.pop(uid, None)
+def disconnect_command(message):
+    user_id = message.from_user.id
+    partner = users.get(user_id, {}).get("partner")
     if partner:
-        chats.pop(partner, None)
-        bot.send_message(uid, "❌ Disconnected!")
-        bot.send_message(partner, "❌ Disconnected!")
-    else:
-        bot.send_message(uid, "❗️ You are not chatting!")
+        users[user_id]["partner"] = None
+        users[partner]["partner"] = None
+        bot.send_message(user_id, "❌ Disconnected.")
+        bot.send_message(partner, "❌ Disconnected.")
+    bot.send_message(user_id, "🏠 Back to Menu", reply_markup=start_menu())
 
-# Fix Command
-@bot.message_handler(commands=['fix'])
-def fix(message):
-    if message.from_user.id != ADMIN_ID:
+@bot.message_handler(func=lambda m: True)
+def main(message):
+    user_id = message.from_user.id
+    text = message.text
+
+    if user_id not in users:
+        return start(message)
+
+    if not is_member(user_id):
+        join_markup = types.InlineKeyboardMarkup()
+        join_markup.add(types.InlineKeyboardButton("✅ Join Channel", url="https://t.me/+g-i8Vohdrv44NDRl"))
+        bot.send_message(user_id, "⚡ Please join our channel first!", reply_markup=join_markup)
         return
-    ids = message.text.split()
-    if len(ids) == 3:
-        u1 = int(ids[1])
-        u2 = int(ids[2])
-        connect(u1, u2)
-        bot.send_message(ADMIN_ID, "✅ Fixed Connection Done.")
 
-# Block/Unblock
-@bot.message_handler(commands=['block'])
-def block(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    parts = message.text.split()
-    if len(parts) == 3:
-        user_id = int(parts[1])
-        until_time = parts[2]
-        t = time.mktime(time.strptime(until_time, "%d%m%y"))
-        blocked_users[user_id] = t
-        bot.send_message(ADMIN_ID, f"🚫 User {user_id} blocked till {until_time}")
+    if text == "🔍 Random Chat":
+        if user_id in waiting_random:
+            bot.send_message(user_id, "⏳ Already waiting...")
+            return
+        waiting_random.append(user_id)
+        bot.send_message(user_id, "🔎 Searching for partner...")
+        find_random_partner(user_id)
 
-@bot.message_handler(commands=['unblock'])
-def unblock(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    parts = message.text.split()
-    if len(parts) == 2:
-        user_id = int(parts[1])
-        blocked_users.pop(user_id, None)
-        bot.send_message(ADMIN_ID, f"✅ User {user_id} unblocked!")
+    elif text == "🎯 Filter Chat":
+        if users[user_id]["session"] < time.time():
+            bot.send_message(user_id, "⏳ You need more referrals to access filter chat!")
+            return
+        if user_id in waiting_filter:
+            bot.send_message(user_id, "⏳ Already waiting...")
+            return
+        waiting_filter.append(user_id)
+        bot.send_message(user_id, "🔎 Searching for matching partner...")
+        find_filter_partner(user_id)
 
-# Exchange
-@bot.message_handler(commands=['exchange'])
-def exchange(message):
-    user = users.get(message.from_user.id, {})
-    if referrals.get(message.from_user.id, 0) >= 3:
-        user["points"] = user.get("points", 0) + 2
-        referrals[message.from_user.id] -= 3
-        bot.send_message(message.chat.id, "🎉 Exchanged 3 referrals for 2 hour filter access!")
-    else:
-        bot.send_message(message.chat.id, "❗️ You need 3 referrals to exchange!")
+    elif text == "👤 Profile":
+        bot.send_message(user_id, "👤 Update your profile:", reply_markup=profile_menu())
 
-# Stop Search
-@bot.message_handler(commands=['stopsearch'])
-def stopsearch(message):
-    if message.from_user.id in searching:
-        searching.remove(message.from_user.id)
-    if message.from_user.id in filter_searching:
-        filter_searching.remove(message.from_user.id)
-    bot.send_message(message.chat.id, "🛑 Search Stopped.")
+    elif text == "⚙️ Settings":
+        bot.send_message(user_id, "⚙️ Settings:", reply_markup=setting_menu())
 
-# Run bot
-print("Bot is running...")
+    elif text == "💰 Referral":
+        bot.send_message(user_id, f"💬 Your Referral Link:\nhttps://t.me/Datingxrobot?start={user_id}")
+
+def find_random_partner(user_id):
+    for uid in waiting_random:
+        if uid != user_id:
+            waiting_random.remove(uid)
+            waiting_random.remove(user_id)
+            users[user_id]["partner"] = uid
+            users[uid]["partner"] = user_id
+
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("❌ Disconnect", callback_data="disconnect"))
+
+            info_user = f"❤️ Matched!\n\n🚻 Gender: {users[uid]['gender']}\n🎂 Age: {users[uid]['age']}\n🌎 Country: {users[uid]['country']}"
+            info_partner = f"❤️ Matched!\n\n🚻 Gender: {users[user_id]['gender']}\n🎂 Age: {users[user_id]['age']}\n🌎 Country: {users[user_id]['country']}"
+
+            bot.send_message(user_id, info_user, reply_markup=markup)
+            bot.send_message(uid, info_partner, reply_markup=markup)
+            return
+    bot.send_message(user_id, "⏳ Waiting for partner...")
+
+def find_filter_partner(user_id):
+    for uid in waiting_filter:
+        if uid != user_id:
+            waiting_filter.remove(uid)
+            waiting_filter.remove(user_id)
+            users[user_id]["partner"] = uid
+            users[uid]["partner"] = user_id
+
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("❌ Disconnect", callback_data="disconnect"))
+
+            info_user = f"❤️ Matched!\n\n🚻 Gender: {users[uid]['gender']}\n🎂 Age: {users[uid]['age']}\n🌎 Country: {users[uid]['country']}"
+            info_partner = f"❤️ Matched!\n\n🚻 Gender: {users[user_id]['gender']}\n🎂 Age: {users[user_id]['age']}\n🌎 Country: {users[user_id]['country']}"
+
+            bot.send_message(user_id, info_user, reply_markup=markup)
+            bot.send_message(uid, info_partner, reply_markup=markup)
+            return
+    bot.send_message(user_id, "⏳ Waiting for match...")
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback(call):
+    user_id = call.from_user.id
+
+    if call.data == "disconnect":
+        partner = users.get(user_id, {}).get("partner")
+        if partner:
+            users[user_id]["partner"] = None
+            users[partner]["partner"] = None
+            bot.send_message(user_id, "❌ Disconnected.")
+            bot.send_message(partner, "❌ Disconnected.")
+        bot.send_message(user_id, "🏠 Back to Menu", reply_markup=start_menu())
+
+    elif call.data == "set_gender":
+        bot.send_message(user_id, "🚻 Choose your gender:", reply_markup=genders_markup())
+
+    elif call.data == "set_country":
+        bot.send_message(user_id, "🌎 Choose your country:", reply_markup=countries_markup())
+
+    elif call.data == "set_age":
+        bot.send_message(user_id, "🎂 Choose your age:", reply_markup=age_markup())
+
+    elif call.data == "reset_settings":
+        users[user_id]["filter_gender"] = None
+        users[user_id]["filter_age"] = None
+        users[user_id]["filter_country"] = None
+        bot.send_message(user_id, "✅ Filter settings reset!")
+
+    elif call.data.startswith("gender_"):
+        gender = call.data.split("_")[1]
+        users[user_id]["gender"] = gender.capitalize()
+        bot.send_message(user_id, f"✅ Gender set to {gender.capitalize()}!")
+
+    elif call.data.startswith("country_"):
+        country = call.data.split("_")[1]
+        users[user_id]["country"] = country.capitalize()
+        bot.send_message(user_id, f"✅ Country set to {country.capitalize()}!")
+
+    elif call.data.startswith("age_"):
+        age = call.data.split("_")[1]
+        users[user_id]["age"] = age
+        bot.send_message(user_id, f"✅ Age set to {age}!")
+
+# Run Bot
+print("Bot Running...")
 bot.infinity_polling()
