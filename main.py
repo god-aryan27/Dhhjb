@@ -1,7 +1,6 @@
 import telebot
 from telebot import types
 import time
-import threading
 
 # Your Bot Details
 BOT_TOKEN = '8011013049:AAGVlTalTLZ-LI24aPflJM6Iptmb13W3Hvo'
@@ -13,9 +12,9 @@ ADMIN_ID = 7401896933
 users = {}
 waiting_random = []
 waiting_filter = []
-blocked_users = {}
 
-# Helper functions
+# Helper Functions
+
 def is_member(user_id):
     try:
         member = bot.get_chat_member(CHANNEL_ID, user_id)
@@ -43,8 +42,10 @@ def setting_menu():
 
 def genders_markup():
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("♂️ Male", callback_data="gender_male"),
-               types.InlineKeyboardButton("♀️ Female", callback_data="gender_female"))
+    markup.add(
+        types.InlineKeyboardButton("♂️ Male", callback_data="gender_male"),
+        types.InlineKeyboardButton("♀️ Female", callback_data="gender_female")
+    )
     return markup
 
 def countries_markup():
@@ -70,11 +71,12 @@ def age_markup():
     return markup
 
 # Bot Commands
+
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
     args = message.text.split()
-    
+
     if not is_member(user_id):
         join_markup = types.InlineKeyboardMarkup()
         join_markup.add(types.InlineKeyboardButton("✅ Join Channel", url="https://t.me/+g-i8Vohdrv44NDRl"))
@@ -137,12 +139,13 @@ def disconnect_command(message):
         users[partner]["partner"] = None
         bot.send_message(user_id, "❌ Disconnected.")
         bot.send_message(partner, "❌ Disconnected.")
-    bot.send_message(user_id, "🏠 Back to Menu", reply_markup=start_menu())
+        bot.send_message(user_id, "🏠 Back to Menu", reply_markup=start_menu())
 
-@bot.message_handler(func=lambda m: True)
-def main(message):
+# Chatting Handler
+
+@bot.message_handler(content_types=['text', 'photo', 'video', 'audio', 'voice', 'document', 'sticker', 'animation'])
+def chatting(message):
     user_id = message.from_user.id
-    text = message.text
 
     if user_id not in users:
         return start(message)
@@ -152,6 +155,35 @@ def main(message):
         join_markup.add(types.InlineKeyboardButton("✅ Join Channel", url="https://t.me/+g-i8Vohdrv44NDRl"))
         bot.send_message(user_id, "⚡ Please join our channel first!", reply_markup=join_markup)
         return
+
+    partner_id = users.get(user_id, {}).get("partner")
+
+    if partner_id:
+        try:
+            if message.content_type == 'text':
+                bot.send_message(partner_id, message.text)
+            elif message.content_type == 'photo':
+                bot.send_photo(partner_id, message.photo[-1].file_id, caption=message.caption)
+            elif message.content_type == 'video':
+                bot.send_video(partner_id, message.video.file_id, caption=message.caption)
+            elif message.content_type == 'audio':
+                bot.send_audio(partner_id, message.audio.file_id, caption=message.caption)
+            elif message.content_type == 'voice':
+                bot.send_voice(partner_id, message.voice.file_id)
+            elif message.content_type == 'document':
+                bot.send_document(partner_id, message.document.file_id, caption=message.caption)
+            elif message.content_type == 'sticker':
+                bot.send_sticker(partner_id, message.sticker.file_id)
+            elif message.content_type == 'animation':
+                bot.send_animation(partner_id, message.animation.file_id, caption=message.caption)
+        except Exception as e:
+            bot.send_message(user_id, "⚠️ Partner couldn't receive your message!")
+    else:
+        handle_menu(message)
+
+def handle_menu(message):
+    user_id = message.from_user.id
+    text = message.text
 
     if text == "🔍 Random Chat":
         if user_id in waiting_random:
@@ -192,11 +224,8 @@ def find_random_partner(user_id):
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton("❌ Disconnect", callback_data="disconnect"))
 
-            info_user = f"❤️ Matched!\n\n🚻 Gender: {users[uid]['gender']}\n🎂 Age: {users[uid]['age']}\n🌎 Country: {users[uid]['country']}"
-            info_partner = f"❤️ Matched!\n\n🚻 Gender: {users[user_id]['gender']}\n🎂 Age: {users[user_id]['age']}\n🌎 Country: {users[user_id]['country']}"
-
-            bot.send_message(user_id, info_user, reply_markup=markup)
-            bot.send_message(uid, info_partner, reply_markup=markup)
+            bot.send_message(user_id, "❤️ Matched!", reply_markup=markup)
+            bot.send_message(uid, "❤️ Matched!", reply_markup=markup)
             return
     bot.send_message(user_id, "⏳ Waiting for partner...")
 
@@ -211,11 +240,8 @@ def find_filter_partner(user_id):
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton("❌ Disconnect", callback_data="disconnect"))
 
-            info_user = f"❤️ Matched!\n\n🚻 Gender: {users[uid]['gender']}\n🎂 Age: {users[uid]['age']}\n🌎 Country: {users[uid]['country']}"
-            info_partner = f"❤️ Matched!\n\n🚻 Gender: {users[user_id]['gender']}\n🎂 Age: {users[user_id]['age']}\n🌎 Country: {users[user_id]['country']}"
-
-            bot.send_message(user_id, info_user, reply_markup=markup)
-            bot.send_message(uid, info_partner, reply_markup=markup)
+            bot.send_message(user_id, "❤️ Matched!", reply_markup=markup)
+            bot.send_message(uid, "❤️ Matched!", reply_markup=markup)
             return
     bot.send_message(user_id, "⏳ Waiting for match...")
 
